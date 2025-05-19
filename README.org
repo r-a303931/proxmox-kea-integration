@@ -1,0 +1,68 @@
+#+TITLE: Proxmox Kea Cloud-init Integration
+
+The goal of this project is simple: use cloud-init configuration as a user, but still assign IP addresses on systems that do not support cloud-init to enable further customization via Ansible
+
+* Theory
+This integration reads Proxmox cloud-init configuration to gather MAC address and desired IP address mappings and creates Docker containers that host a Kea DHCP server to issue said IP address to the VM with the correct address.
+
+As an example, reading ~/etc/pve/local/qemu-server/1000.conf~ can contain the following content:
+
+#+BEGIN_SRC yaml
+net0: virtio=52:54:00:9e:cc:1e,bridge=vmbr0,firewall=0
+ipconfig0: gw=192.168.100.1,ip=192.168.100.20/24
+#+END_SRC
+
+Create the ~conf~ and ~lib~ directories, and change their ownerships to be equal to ~100:101~
+
+It is possible to create the following Kea configuration file in ~./conf/kea-dhcp4.conf~:
+
+#+BEGIN_SRC json
+{
+    "Dhcp4": {
+        "interfaces-config": {
+            "interfaces": ["eth0"]
+        },
+        "reservations": [
+            {
+                "hw-address": "52:54:00:9e:cc:1e",
+                "ip-address": "192.168.100.20",
+                "option-data": [
+                    {
+                        "name": "routers",
+                        "data": "192.168.100.1"
+                    }
+                ]
+            }
+        ],
+        "subnet4": [
+            {
+                "pools": [{ "pool": "192.168.100.253 - 192.168.100.254" }],
+                "id": 1,
+                "subnet": "192.168.100.0/24"
+            }
+        ]
+    }
+}
+#+END_SRC
+
+Then run the following Docker commands:
+
+#+BEGIN_SRC shell
+docker network create --driver ipvlan --subnet 192.168.100.0/24 -o parent=vmbr0 ipvlan_vmbr0
+docker run --rm -v ./conf:/etc/kea -v ./lib:/var/lib/kea --net ipvlan_vmbr0 --ip 192.168.100.254 docker.cloudsmith.io/isc/docker/kea-dhcp4:2.5.2
+#+END_SRC
+
+When the VM is powered up, it will be issued the correct IP address
+
+However, this involves running code and the Docker daemon directly on Proxmox. While this is meant to be a integration, it ideal to keep as much of this isolated as possible. To that end, it's possible to run this code in a container on Proxmox that has the following configuration in ~/etc/pve/local/lxc/<ID>.conf~:
+
+#+BEGIN_SRC yaml
+features: nesting=1
+unprivileged: 0
+mp0: /etc/pve,mp=/etc/pve
+lxc.net.0.type: none
+#+END_SRC
+
+This has been tested with the standard Proxmox Debian 12 container template.
+
+With those options, it is possible to start the container, install Docker, then install this integration
