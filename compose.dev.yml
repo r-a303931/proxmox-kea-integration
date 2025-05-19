@@ -1,0 +1,12 @@
+services:
+  management:
+    build:
+      context: .
+    ports:
+      - '5000:5000'
+    restart: always
+    volumes:
+      - /etc/pve:/etc/pve
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - VM_CHECK_POLL=30
