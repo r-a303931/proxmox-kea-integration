@@ -66,3 +66,15 @@ lxc.net.0.type: none
 This has been tested with the standard Proxmox Debian 12 container template.
 
 With those options, it is possible to start the container, install Docker, then install this integration
+
+** VLANs
+If the VM has a VLAN tag associated with it, the bridge to attach to is not the one specified but is instead a bridge of the form ~fwbr<ID>i<interface index>~.
+
+For example, using configuration like the following for VM ID 1000:
+
+#+BEGIN_SRC yaml
+net0: virtio=52:54:00:9e:cc:1e,bridge=vmbr0,firewall=0,tag=5
+ipconfig0: gw=192.168.100.1,ip=192.168.100.20/24
+#+END_SRC
+
+The bridge to attach to will not actually be ~vmbr0~ but in fact ~fwbr1000i0~.
