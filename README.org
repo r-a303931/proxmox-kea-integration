@@ -67,14 +67,34 @@ This has been tested with the standard Proxmox Debian 12 container template.
 
 With those options, it is possible to start the container, install Docker, then install this integration
 
-** VLANs
-If the VM has a VLAN tag associated with it, the bridge to attach to is not the one specified but is instead a bridge of the form ~fwbr<ID>i<interface index>~.
+** Firewalls
+If the VM has a firewall enabled, the bridge to attach to is not the one specified but is instead a bridge of the form ~fwbr<ID>i<interface index>~.
 
 For example, using configuration like the following for VM ID 1000:
 
 #+BEGIN_SRC yaml
-net0: virtio=52:54:00:9e:cc:1e,bridge=vmbr0,firewall=0,tag=5
+net0: virtio=52:54:00:9e:cc:1e,bridge=vmbr0,firewall=1
 ipconfig0: gw=192.168.100.1,ip=192.168.100.20/24
 #+END_SRC
 
 The bridge to attach to will not actually be ~vmbr0~ but in fact ~fwbr1000i0~.
+
+This is the case regardless of whether or not there is a VLAN tag associated with the interface
+
+** VLANs
+VLANs are tricky, because they still use the same bridge. However, it is not a good idea to create multiple Docker networks on the same interface, as Docker will complain and error out. Instead, it is possible and necessary to create macvlan networks and specify a parent that doesn't exist, and have Docker create it automatically.
+
+Given the following configuration:
+
+#+BEGIN_SRC yaml
+net0: virtio=52:54:00:9e:cc:1e,bridge=vmbr0,tag=5
+ipconfig0: gw=192.168.100.1,ip=192.168.100.20/24
+#+END_SRC
+
+The docker network creation command should instead be:
+
+#+BEGIN_SRC shell
+docker network create --driver macvlan --subnet 192.168.100.0/24 -o parent=vmbr0.5 ipvlan_vmbr0.5
+#+END_SRC
+
+And the ~docker run~ command to start the DHCP server should reference the different network
