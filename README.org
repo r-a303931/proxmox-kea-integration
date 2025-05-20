@@ -12,9 +12,7 @@ net0: virtio=52:54:00:9e:cc:1e,bridge=vmbr0,firewall=0
 ipconfig0: gw=192.168.100.1,ip=192.168.100.20/24
 #+END_SRC
 
-Create the ~conf~ and ~lib~ directories, and change their ownerships to be equal to ~100:101~
-
-It is possible to create the following Kea configuration file in ~./conf/kea-dhcp4.conf~:
+Create the file ~./conf/kea-dhcp4.conf~:
 
 #+BEGIN_SRC json
 {
@@ -22,16 +20,15 @@ It is possible to create the following Kea configuration file in ~./conf/kea-dhc
         "interfaces-config": {
             "interfaces": ["eth0"]
         },
+        "option-data": [{"name": "routers", "data": "192.168.100.1"}],
+        "lease-database": {
+            "type": "memfile",
+            "name": "./conf/kea-leases.csv"
+        },
         "reservations": [
             {
                 "hw-address": "52:54:00:9e:cc:1e",
                 "ip-address": "192.168.100.20",
-                "option-data": [
-                    {
-                        "name": "routers",
-                        "data": "192.168.100.1"
-                    }
-                ]
             }
         ],
         "subnet4": [
@@ -45,11 +42,25 @@ It is possible to create the following Kea configuration file in ~./conf/kea-dhc
 }
 #+END_SRC
 
+Create the file ~./conf/kea-leases.csv~:
+
+#+BEGIN_SRC csv
+address,hwaddr,client_id,valid_lifetime,expire,subnet_id,fqdn_fwd,fqdn_rev,hostname,state,user_context,pool_id
+#+END_SRC
+
 Then run the following Docker commands:
 
 #+BEGIN_SRC shell
-docker network create --driver ipvlan --subnet 192.168.100.0/24 -o parent=vmbr0 ipvlan_vmbr0
-docker run --rm -v ./conf:/etc/kea -v ./lib:/var/lib/kea --net ipvlan_vmbr0 --ip 192.168.100.254 docker.cloudsmith.io/isc/docker/kea-dhcp4:2.5.2
+ip netns add kea_vmbr0
+ip link add kh_vmbr0 type veth peer kn_vmbr0
+ip link set kn_vmbr0 netns kea_vmbr0
+ip -n kea_vmbr0 link set lo up
+ip -n kea_vmbr0 link set kn_vmbr0 up
+ip -n kea_vmbr0 addr add 192.168.100.254/24 brd + dev kn_vmbr0
+ip link set kh_vmbr0 master vmbr0
+ip link set kh_vmbr0 up
+
+ip netns exec kea_vmbr0 kea -c conf/kea-dhcp4.conf
 #+END_SRC
 
 When the VM is powered up, it will be issued the correct IP address
@@ -82,7 +93,7 @@ The bridge to attach to will not actually be ~vmbr0~ but in fact ~fwbr1000i0~.
 This is the case regardless of whether or not there is a VLAN tag associated with the interface
 
 ** VLANs
-VLANs are tricky, because they still use the same bridge. However, it is not a good idea to create multiple Docker networks on the same interface, as Docker will complain and error out. Instead, it is possible and necessary to create macvlan networks and specify a parent that doesn't exist, and have Docker create it automatically.
+VLANs are a little simpler, because instead of a veth pair it is only necessary to create a VLAN subinterface
 
 Given the following configuration:
 
@@ -91,10 +102,15 @@ net0: virtio=52:54:00:9e:cc:1e,bridge=vmbr0,tag=5
 ipconfig0: gw=192.168.100.1,ip=192.168.100.20/24
 #+END_SRC
 
-The docker network creation command should instead be:
+The commands to set up the ~kea_vmbr0.5~ namespace are:
 
 #+BEGIN_SRC shell
-docker network create --driver macvlan --subnet 192.168.100.0/24 -o parent=vmbr0.5 ipvlan_vmbr0.5
-#+END_SRC
+ip netns add kea_vmbr0.5
+ip link add vmbr0.5 link vmbr0 type vlan id 5
+ip link set vmbr0.5 netns kea_vmbr0.5
+ip -n kea_vmbr0.5 link set lo up
+ip -n kea_vmbr0.5 link set vmbr0.5 up
+ip -n kea_vmbr0.5 addr add 192.168.100.254/24 brd + dev vmbr0.5
 
-And the ~docker run~ command to start the DHCP server should reference the different network
+ip netns exec kea_vmbr0.5 kea -c conf/kea-dhcp4.conf
+#+END_SRC
