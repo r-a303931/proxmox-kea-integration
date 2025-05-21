@@ -3,6 +3,7 @@ import ipaddress
 import json
 import os
 import re
+import subprocess
 import sys
 from threading import Thread, Timer
 
@@ -34,16 +35,16 @@ class InterfaceReservations(Thread):
     allocated_reservations: list[Reservation]
 
     kea_process = None
-    kea_thread = None
 
     rebuild: bool = True
     status: str = 'Not started'
 
     def build_config(self, reservations=None) -> str:
+        res = reservations if reservations else self.reservations
         conf = {
             'Dhcp4': {
                 'interfaces-config': {
-                    'interfaces': ['eth0']
+                    'interfaces': [f'kn_{self.interface}']
                 },
                 "lease-database": {
                     "type": "memfile",
@@ -53,16 +54,16 @@ class InterfaceReservations(Thread):
                 'subnet4': [
                     {
                         'pools': [{
-                            'pool': f'{str(self.subnet[2])} - {str(self.subnet[3])}'
+                            'pool': f'{str(self.subnet[-3])} - {str(self.subnet[-2])}'
                         }],
                         'id': 1,
                         'subnet': str(self.subnet),
                         'reservations': [
                             {
-                                'hw-address': r['mac'],
-                                'ip-address': str(r['ip'])
+                                'hw-address': r.mac,
+                                'ip-address': str(r.ip)
                             }
-                            for r in self.reservations
+                            for r in res
                         ]
                     }
                 ]
@@ -79,8 +80,8 @@ class InterfaceReservations(Thread):
 
     def build_leases(self) -> str:
         return f"""address,hwaddr,client_id,valid_lifetime,expire,subnet_id,fqdn_fwd,fqdn_rev,hostname,state,user_context,pool_id
-{str(self.subnet[2])},00:00:00:00:00:00,00:00:00:00:00:00:00,31536000,32503611600000,1,0,0,unknown,0,,0
-{str(self.subnet[3])},00:00:00:00:00:00,00:00:00:00:00:00:00,31536000,32503611600000,1,0,0,unknown,0,,0
+{str(self.subnet[-2])},01:02:03:04:05:06,06:08:09:0A:0B:0C:0D,31536000,32503611600000,1,0,0,unknown,0,,0
+{str(self.subnet[-3])},01:02:03:04:05:07,07:08:09:0A:0B:0C:0D,31536000,32503611600000,1,0,0,unknown,0,,0
         """
 
     def json(self) -> dict:
@@ -97,10 +98,45 @@ class InterfaceReservations(Thread):
         }
 
     def run(self):
-        pass
+        with open(f'/etc/pkci/{self.interface}/kea-dhcp4.json', 'w') as kea_dhcp:
+            kea_dhcp.write(self.build_config())
+
+        with open(f'/etc/pkci/{self.interface}/leases.csv', 'w') as kea_leases:
+            kea_leases.write(self.build_leases())
+
+        self.kea_process = subprocess.Popen(
+            [
+                '/bin/sh',
+                '-c',
+                f'unshare -m sh -c "mount -t tmpfs kea_run /var/run/kea; ip netns exec kea_{self.interface} kea-dhcp4 -c /etc/pkci/{self.interface}/kea-dhcp4.json"',
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+        with open(f'/etc/pkci/{self.interface}/log', 'w') as log:
+            while self.kea_process.returncode is None:
+                out, err = self.kea_process.communicate()
+                log.write(err)
+
+                for reservation in self.reservations:
+                    for alloced in self.allocated_reservations:
+                        if alloced == reservation:
+                            break
+                    else:
+                        if f'lease {str(reservation.ip)} has been allocated' in err:
+                            self.allocated_reservations.append(reservation)
+
 
     def stop(self):
         os.system(f'ip netns del kea_{self.interface}')
+
+        if self.kea_process:
+            self.kea_process.terminate()
+
+        if self.is_alive():
+            self.join()
 
 server = Flask(__name__)
 
@@ -277,7 +313,9 @@ def update_reservations():
             if interface.interface == new_res['bridge']:
                 break
         else:
+            interface.stop()
             interface.status = 'No longer needed'
+            print(f'Stopped DHCP on {interface.interface}')
 
     for interface in interfaces:
         if not interface.rebuild:
@@ -306,6 +344,8 @@ def update_reservations():
             if interface.vlan != 0:
                 run_cmd(f'bridge vlan del vid 1 dev kh_{interface.interface}')
                 run_cmd(f'bridge vlan add vid {interface.vlan} dev kh_{interface.interface} pvid untagged')
+
+            interface.start()
 
             interface.rebuild = False
             interface.status = 'Up and running'

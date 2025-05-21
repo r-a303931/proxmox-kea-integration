@@ -1,6 +1,6 @@
 FROM python:3.12
 
-RUN apt update && apt install -y kea iproute2 && rm -rf /var/lib/apt/lists/*
+RUN apt update && apt install -y kea iproute2 && rm -rf /var/lib/apt/lists/* && mkdir /var/run/kea
 
 WORKDIR /code
 
