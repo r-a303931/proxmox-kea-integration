@@ -1,5 +1,7 @@
 FROM python:3.12
 
+RUN apt update && apt install -y kea iproute2 && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /code
 
 COPY requirements.txt .

@@ -4,9 +4,8 @@ import json
 import os
 import re
 import sys
-from threading import Timer
+from threading import Thread, Timer
 
-import docker
 from flask import Flask
 
 @dataclass
@@ -24,13 +23,18 @@ class Reservation:
             'interface': self.interface
         }
 
-class InterfaceReservations:
+class InterfaceReservations(Thread):
     interface: str
+    if_raw: str
     vlan: int
     subnet: ipaddress.IPv4Network
     gateway: ipaddress.IPv4Address | None
 
     reservations: list[Reservation]
+    allocated_reservations: list[Reservation]
+
+    kea_process = None
+    kea_thread = None
 
     rebuild: bool = True
     status: str = 'Not started'
@@ -41,23 +45,28 @@ class InterfaceReservations:
                 'interfaces-config': {
                     'interfaces': ['eth0']
                 },
-            },
-            'subnet4': [
-                {
-                    'pools': [{
-                        'pool': f'{str(self.subnet[2])} - {str(self.subnet[3])}'
-                    }],
-                    'id': 1,
-                    'subnet': str(self.subnet),
-                    'reservations': [
-                        {
-                            'hw-address': r['mac'],
-                            'ip-address': str(r['ip'])
-                        }
-                        for r in self.reservations
-                    ]
-                }
-            ]
+                "lease-database": {
+                    "type": "memfile",
+                    "name": f"/etc/pkci/{self.interface}/leases.csv",
+                    "lfc-interval": 0
+                },
+                'subnet4': [
+                    {
+                        'pools': [{
+                            'pool': f'{str(self.subnet[2])} - {str(self.subnet[3])}'
+                        }],
+                        'id': 1,
+                        'subnet': str(self.subnet),
+                        'reservations': [
+                            {
+                                'hw-address': r['mac'],
+                                'ip-address': str(r['ip'])
+                            }
+                            for r in self.reservations
+                        ]
+                    }
+                ]
+            }
         }
 
         if self.gateway:
@@ -83,12 +92,17 @@ class InterfaceReservations:
             'gateway': str(self.gateway),
             'status': self.status,
 
-            'reservations': [r.json() for r in self.reservations]
+            'reservations': [r.json() for r in self.reservations],
+            'allocated_reservations': [r.json() for r in self.allocated_reservations]
         }
 
-server = Flask(__name__)
+    def run(self):
+        pass
 
-client = docker.from_env()
+    def stop(self):
+        os.system(f'ip netns del kea_{self.interface}')
+
+server = Flask(__name__)
 
 raw_query = []
 interfaces: list[InterfaceReservations] = []
@@ -171,12 +185,15 @@ def query_reservations():
 
                     if net_conf.get('firewall', '0') == '1':
                         interface = f'fwbr{vm_id}i{net_id}'
+                        if_raw = interface
                         tag = 0
                     elif 'tag' in net_conf:
                         tag = int(net_conf['tag'])
                         interface = f"{net_conf['bridge']}.{tag}"
+                        if_raw = net_conf['bridge']
                     else:
                         interface = net_conf['bridge']
+                        if_raw = interface
                         tag = 0
 
                     ip_config = parse_kv(value)
@@ -188,6 +205,7 @@ def query_reservations():
                         interface,
                         {
                             'bridge': interface,
+                            'bridge_raw': if_raw,
                             'vlan': tag,
                             'subnet': address.network,
                             'gateway': gateway,
@@ -218,6 +236,12 @@ def query_reservations():
 
     return results
 
+def run_cmd(cmd):
+    print('Running command: ', cmd, file=sys.stderr)
+    if os.system(cmd) != 0:
+        raise Exception('Failed to run command specified! ' + cmd)
+
+
 def update_reservations():
     raw_query.clear()
     new_reservations = query_reservations()
@@ -240,10 +264,12 @@ def update_reservations():
         else:
             interface = InterfaceReservations()
             interface.interface = new_res['bridge']
+            interface.if_raw = new_res['bridge_raw']
             interface.vlan = new_res['vlan']
             interface.subnet = new_res['subnet']
             interface.gateway = new_res['gateway']
             interface.reservations = res_list
+            interface.allocated_reservations = []
             interfaces.append(interface)
 
     for interface in interfaces:
@@ -252,6 +278,42 @@ def update_reservations():
                 break
         else:
             interface.status = 'No longer needed'
+
+    for interface in interfaces:
+        if not interface.rebuild:
+            continue
+
+        print(f'Rebuilding {interface.interface}...', file=sys.stderr)
+
+        try:
+            interface.stop()
+            print(f'Stopped DHCP on {interface.interface}')
+
+            os.makedirs(f'/etc/pkci/{interface.interface}', exist_ok=True)
+
+            run_cmd(f'ip netns add kea_{interface.interface}')
+            run_cmd(f'ip link add kh_{interface.interface} type veth peer kn_{interface.interface}')
+            run_cmd(f'ip link set kn_{interface.interface} netns kea_{interface.interface}')
+            run_cmd(f'ip -n kea_{interface.interface} link set lo up')
+            run_cmd(f'ip -n kea_{interface.interface} link set kn_{interface.interface} up')
+            run_cmd(f'ip -n kea_{interface.interface} addr add {str(interface.subnet[-2])}/{interface.subnet.prefixlen} brd + dev kn_{interface.interface}')
+            if interface.vlan != 0:
+                run_cmd(f'ip link set kh_{interface.interface} master {interface.if_raw}')
+            else:
+                run_cmd(f'ip link set kh_{interface.interface} master {interface.interface}')
+            run_cmd(f'ip link set kh_{interface.interface} up')
+
+            if interface.vlan != 0:
+                run_cmd(f'bridge vlan del vid 1 dev kh_{interface.interface}')
+                run_cmd(f'bridge vlan add vid {interface.vlan} dev kh_{interface.interface} pvid untagged')
+
+            interface.rebuild = False
+            interface.status = 'Up and running'
+        except Exception as e:
+            print('Failed to create network: ', e, file=sys.stderr)
+            errors.append(f'Failed to rebuild interface {interface.interface}; {e.message}')
+            crash = e
+            interface.status = 'Failed to start'
 
     #for res in new_reservations.values():
     #    print(f'Interface {res["bridge"]} ({res["subnet"]})')
@@ -266,22 +328,6 @@ timer = RepeatTimer(
 )
 
 if __name__ == "__main__":
-    containers = [
-        c for c in client.containers.list()
-        if 'co.riouxs.keaproxmox.interface' in c.labels
-    ]
-
-    if len(containers) != 0:
-        print('Stopping extra containers:')
-
-    for container in containers:
-        print(f' * Stopping {container.name}')
-        container.stop()
-
-    print('Pruning networks')
-    client.networks.prune()
-    print('Networks pruned')
-
     print('Running background thread to spawn DHCP servers')
     timer.start()
 

@@ -6,12 +6,12 @@
   outputs = { self, nixpkgs }:
     let
       pkgs = import nixpkgs { system = "x86_64-linux"; };
-      pyPkgs = ps: with ps; [ flask docker black ];
+      pyPkgs = ps: with ps; [ flask black ];
     in {
       devShells.x86_64-linux.default = pkgs.mkShell {
         name = "proxmox-kea-integration";
 
-        packages = with pkgs; [ (python3.withPackages pyPkgs) ];
+        packages = with pkgs; [ kea (python3.withPackages pyPkgs) ];
       };
     };
 }
