@@ -54,18 +54,19 @@ class InterfaceReservations(Thread):
                 'subnet4': [
                     {
                         'pools': [{
-                            'pool': f'{str(self.subnet[-3])} - {str(self.subnet[-2])}'
+                            'pool': f'{str(self.subnet[1])} - {str(self.subnet[-2])}',
+                            'client-class': 'cloudinit'
                         }],
                         'id': 1,
                         'subnet': str(self.subnet),
                         'reservations': [
                             {
                                 'hw-address': r.mac,
-                                'ip-address': str(r.ip)
+                                'ip-address': str(r.ip),
+                                'client-class': 'cloudinit'
                             }
                             for r in res
-                        ],
-                        "client-class": "KNOWN"
+                        ]
                     }
                 ]
             }
@@ -80,10 +81,7 @@ class InterfaceReservations(Thread):
         return json.dumps(conf)
 
     def build_leases(self) -> str:
-        return f"""address,hwaddr,client_id,valid_lifetime,expire,subnet_id,fqdn_fwd,fqdn_rev,hostname,state,user_context,pool_id
-{str(self.subnet[-2])},01:02:03:04:05:06,06:08:09:0A:0B:0C:0D,31536000,32503611600000,1,0,0,unknown,0,,0
-{str(self.subnet[-3])},01:02:03:04:05:07,07:08:09:0A:0B:0C:0D,31536000,32503611600000,1,0,0,unknown,0,,0
-        """
+        return "address,hwaddr,client_id,valid_lifetime,expire,subnet_id,fqdn_fwd,fqdn_rev,hostname,state,user_context,pool_id\n"
 
     def json(self) -> dict:
         return {
@@ -109,7 +107,7 @@ class InterfaceReservations(Thread):
             [
                 '/bin/sh',
                 '-c',
-                f'unshare -m sh -c "mount -t tmpfs kea_run /var/run/kea; ip netns exec kea_{self.interface} kea-dhcp4 -c /etc/pkci/{self.interface}/kea-dhcp4.json"',
+                f'unshare -m sh -c "mount -t tmpfs kea_run /var/run/kea; KEA_DHCP_DATA_DIR=/etc/pkci/{self.interface} ip netns exec kea_{self.interface} kea-dhcp4 -c /etc/pkci/{self.interface}/kea-dhcp4.json"',
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
