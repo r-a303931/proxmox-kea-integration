@@ -63,7 +63,7 @@ class InterfaceReservations(Thread):
                             {
                                 'hw-address': r.mac,
                                 'ip-address': str(r.ip),
-                                'client-class': 'cloudinit'
+                                'client-classes': ['cloudinit']
                             }
                             for r in res
                         ]
