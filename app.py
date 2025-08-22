@@ -127,6 +127,8 @@ class InterfaceReservations(Thread):
                         if f'lease {str(reservation.ip)} has been allocated' in err:
                             self.allocated_reservations.append(reservation)
 
+        self.status = 'Exited (likely error!)'
+
 
     def stop(self):
         os.system(f'ip netns del kea_{self.interface}')
