@@ -64,7 +64,8 @@ class InterfaceReservations(Thread):
                                 'ip-address': str(r.ip)
                             }
                             for r in res
-                        ]
+                        ],
+                        "client-class": "KNOWN"
                     }
                 ]
             }
