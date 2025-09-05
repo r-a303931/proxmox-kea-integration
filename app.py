@@ -41,6 +41,22 @@ class InterfaceReservations(Thread):
     rebuild: bool = True
     status: str = "Not started"
 
+    def rebuild(self) -> InterfaceReservations:
+        ifr = InterfaceReservations()
+
+        ifr.interface = self.interface
+        ifr.if_raw = self.if_raw
+        ifr.vlan = self.vlan
+        ifr.subnet = self.subnet
+        ifr.gateway = self.gateway
+        ifr.reservations = self.reservations
+        ifr.allocated_reservations = self.allocated_reservations
+        ifr.kea_process = self.kea_process
+        ifr.rebuild = self.rebuild
+        ifr.status = self.status
+
+        return ifr
+
     def build_config(self, reservations=None) -> str:
         res = reservations if reservations else self.reservations
         conf = {
@@ -130,6 +146,7 @@ class InterfaceReservations(Thread):
 
     def stop(self):
         os.system(f"ip netns del kea_{self.interface}")
+        os.system(f"ip link del kh_{self.interface}")
 
         if self.kea_process:
             self.kea_process.kill()
@@ -338,7 +355,7 @@ def update_reservations():
                 interface.status = "No longer needed"
                 print(f"Stopped DHCP on {interface.interface}", file=sys.stderr)
 
-        for interface in interfaces:
+        for i, interface in enumerate(interfaces):
             if not interface.rebuild:
                 continue
 
@@ -346,6 +363,7 @@ def update_reservations():
 
             try:
                 interface.stop()
+                interfaces[i] = interface = interface.rebuild()
                 print(f"Stopped DHCP on {interface.interface}", file=sys.stderr)
 
                 os.makedirs(f"/etc/pkci/{interface.interface}", exist_ok=True)
