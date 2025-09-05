@@ -212,76 +212,80 @@ def query_reservations():
         except:
             continue
 
-        with open(f"/etc/pve/local/qemu-server/{vm_id}.conf", "r") as f:
-            lines = [
-                line.strip().split(": ", 1)
-                for line in f.readlines()
-                if ": " in line and not line.startswith("#")
-            ]
-            options = dict((key, value) for [key, value] in lines)
+        try:
+            with open(f"/etc/pve/local/qemu-server/{vm_id}.conf", "r") as f:
+                lines = [
+                    line.strip().split(": ", 1)
+                    for line in f.readlines()
+                    if ": " in line and not line.startswith("#")
+                ]
+                options = dict((key, value) for [key, value] in lines)
 
-            for [key, value] in lines:
-                if key.startswith("ipconfig"):
-                    net_id = int(key[len("ipconfig") :])
-                    net_conf = parse_kv(options[f"net{net_id}"])
+                for [key, value] in lines:
+                    if key.startswith("ipconfig"):
+                        net_id = int(key[len("ipconfig") :])
+                        net_conf = parse_kv(options[f"net{net_id}"])
 
-                    if net_conf.get("firewall", "0") == "1":
-                        interface = f"fwbr{vm_id}i{net_id}"
-                        if_raw = interface
-                        tag = 0
-                    elif "tag" in net_conf:
-                        tag = int(net_conf["tag"])
-                        interface = f"{net_conf['bridge']}.{tag}"
-                        if_raw = net_conf["bridge"]
-                    else:
-                        interface = net_conf["bridge"]
-                        if_raw = interface
-                        tag = 0
+                        if net_conf.get("firewall", "0") == "1":
+                            interface = f"fwbr{vm_id}i{net_id}"
+                            if_raw = interface
+                            tag = 0
+                        elif "tag" in net_conf:
+                            tag = int(net_conf["tag"])
+                            interface = f"{net_conf['bridge']}.{tag}"
+                            if_raw = net_conf["bridge"]
+                        else:
+                            interface = net_conf["bridge"]
+                            if_raw = interface
+                            tag = 0
 
-                    ip_config = parse_kv(value)
+                        ip_config = parse_kv(value)
 
-                    address = ipaddress.ip_interface(ip_config["ip"])
-                    gateway = (
-                        ipaddress.ip_address(ip_config["gw"])
-                        if "gw" in ip_config
-                        else None
-                    )
-
-                    results[interface] = results.get(
-                        interface,
-                        {
-                            "bridge": interface,
-                            "bridge_raw": if_raw,
-                            "vlan": tag,
-                            "subnet": address.network,
-                            "gateway": gateway,
-                            "reservations": [],
-                        },
-                    )
-                    if_opts = results[interface]
-
-                    if not address.ip in if_opts["subnet"]:
-                        errors.append(
-                            f'VM ID {vm_id} network interface {net_id} has an IP assigned of {str(address.ip)}, which does not reside in {if_opts["subnet"]} previously defined as used for network {interface}'
+                        address = ipaddress.ip_interface(ip_config["ip"])
+                        gateway = (
+                            ipaddress.ip_address(ip_config["gw"])
+                            if "gw" in ip_config
+                            else None
                         )
 
-                    if if_opts["gateway"] != gateway:
-                        errors.append(
-                            f'VM ID {vm_id} network interface {net_id} has an gateway with a value of {str(gateway)}, which does not match the gateway for {interface} of {if_opts["gateway"]}'
+                        results[interface] = results.get(
+                            interface,
+                            {
+                                "bridge": interface,
+                                "bridge_raw": if_raw,
+                                "vlan": tag,
+                                "subnet": address.network,
+                                "gateway": gateway,
+                                "reservations": [],
+                            },
                         )
+                        if_opts = results[interface]
 
-                    if_opts["reservations"].append(
-                        {
-                            "vmid": vm_id,
-                            "interface": net_id,
-                            "mac": next(
-                                mac
-                                for mac in net_conf.values()
-                                if re.match(r"([A-F0-9]{2}:){5}[A-F0-9]{2}", mac)
-                            ),
-                            "ip": address.ip,
-                        }
-                    )
+                        if not address.ip in if_opts["subnet"]:
+                            errors.append(
+                                f'VM ID {vm_id} network interface {net_id} has an IP assigned of {str(address.ip)}, which does not reside in {if_opts["subnet"]} previously defined as used for network {interface}'
+                            )
+
+                        if if_opts["gateway"] != gateway:
+                            errors.append(
+                                f'VM ID {vm_id} network interface {net_id} has an gateway with a value of {str(gateway)}, which does not match the gateway for {interface} of {if_opts["gateway"]}'
+                            )
+
+                        if_opts["reservations"].append(
+                            {
+                                "vmid": vm_id,
+                                "interface": net_id,
+                                "mac": next(
+                                    mac
+                                    for mac in net_conf.values()
+                                    if re.match(r"([A-F0-9]{2}:){5}[A-F0-9]{2}", mac)
+                                ),
+                                "ip": address.ip,
+                            }
+                        )
+        except Exception as e:
+            print(f"Failed to check VM {vm_id} for info: ", e, file=sys.stderr)
+            errors.append(f"Failed to check VM {vm_id} for info: : {e.message}")
 
     return results
 
