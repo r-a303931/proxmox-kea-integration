@@ -107,18 +107,17 @@ class InterfaceReservations(Thread):
             [
                 "/bin/sh",
                 "-c",
-                f'unshare -m sh -c "mount -t tmpfs kea_run /var/run/kea; KEA_DHCP_DATA_DIR=/etc/pkci/{self.interface} ip netns exec kea_{self.interface} kea-dhcp4 -c /etc/pkci/{self.interface}/kea-dhcp4.json"',
+                f'unshare -m sh -c "mount -t tmpfs kea_run /var/run/kea; KEA_DHCP_DATA_DIR=/etc/pkci/{self.interface} ip netns exec kea_{self.interface} kea-dhcp4 -c /etc/pkci/{self.interface}/kea-dhcp4.json 2>&1 | tee /etc/pkci/{self.interface}/log"',
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
         )
 
-        with open(f"/etc/pkci/{self.interface}/log", "w") as log:
-            while self.kea_process.returncode is None:
-                out, err = self.kea_process.communicate()
-                log.write(err)
+        while self.kea_process.returncode is None:
+            out, err = self.kea_process.communicate(timeout=15)
 
+            if err != "":
                 for reservation in self.reservations:
                     for alloced in self.allocated_reservations:
                         if alloced == reservation:
@@ -133,7 +132,7 @@ class InterfaceReservations(Thread):
         os.system(f"ip netns del kea_{self.interface}")
 
         if self.kea_process:
-            self.kea_process.terminate()
+            self.kea_process.kill()
 
         if self.is_alive():
             self.join()
