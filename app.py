@@ -223,6 +223,7 @@ def query_reservations():
 
                 for [key, value] in lines:
                     if key.startswith("ipconfig"):
+                        print(f"Considering {key} for VM {vm_id}", file=sys.stderr)
                         net_id = int(key[len("ipconfig") :])
                         net_conf = parse_kv(options[f"net{net_id}"])
 
@@ -297,7 +298,7 @@ def run_cmd(cmd):
 
 
 def update_reservations():
-    print("Checking to update reservations...")
+    print("Checking to update reservations...", file=sys.stderr)
 
     try:
         raw_query.clear()
@@ -336,7 +337,7 @@ def update_reservations():
             else:
                 interface.stop()
                 interface.status = "No longer needed"
-                print(f"Stopped DHCP on {interface.interface}")
+                print(f"Stopped DHCP on {interface.interface}", file=sys.stderr)
 
         for interface in interfaces:
             if not interface.rebuild:
@@ -346,7 +347,7 @@ def update_reservations():
 
             try:
                 interface.stop()
-                print(f"Stopped DHCP on {interface.interface}")
+                print(f"Stopped DHCP on {interface.interface}", file=sys.stderr)
 
                 os.makedirs(f"/etc/pkci/{interface.interface}", exist_ok=True)
 
