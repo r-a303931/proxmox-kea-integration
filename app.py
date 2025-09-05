@@ -290,9 +290,9 @@ def query_reservations():
     return results
 
 
-def run_cmd(cmd):
+def run_cmd(cmd, exit_on_failure=True):
     print("Running command: ", cmd, file=sys.stderr)
-    if os.system(cmd) != 0:
+    if os.system(cmd) != 0 and exit_on_failure:
         raise Exception("Failed to run command specified! " + cmd)
 
 
@@ -351,6 +351,7 @@ def update_reservations():
                 os.makedirs(f"/etc/pkci/{interface.interface}", exist_ok=True)
 
                 run_cmd(f"ip netns add kea_{interface.interface}")
+                run_cmd(f"ip link del kh_{interface.interface}", exit_on_failure=False)
                 run_cmd(
                     f"ip link add kh_{interface.interface} type veth peer kn_{interface.interface}"
                 )
