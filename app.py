@@ -219,7 +219,7 @@ def query_reservations():
                     for line in f.readlines()
                     if ": " in line
                     and not line.startswith("#")
-                    and not line.trim().endswith(": ")
+                    and not line.strip().endswith(": ")
                 ]
                 options = dict((key, value) for [key, value] in lines)
 
