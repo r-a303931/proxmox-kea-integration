@@ -41,7 +41,7 @@ class InterfaceReservations(Thread):
     rebuild: bool = True
     status: str = "Not started"
 
-    def rebuild(self) -> InterfaceReservations:
+    def rebuild(self):
         ifr = InterfaceReservations()
 
         ifr.interface = self.interface
