@@ -41,7 +41,7 @@ class InterfaceReservations(Thread):
     rebuild: bool = True
     status: str = "Not started"
 
-    def rebuild(self):
+    def rebuild_if(self):
         ifr = InterfaceReservations()
 
         ifr.interface = self.interface
@@ -363,7 +363,8 @@ def update_reservations():
 
             try:
                 interface.stop()
-                interfaces[i] = interface = interface.rebuild()
+                interfaces[i] = interface.rebuild_if()
+                interface = interfaces[i]
                 print(f"Stopped DHCP on {interface.interface}", file=sys.stderr)
 
                 os.makedirs(f"/etc/pkci/{interface.interface}", exist_ok=True)
