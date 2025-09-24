@@ -16,6 +16,8 @@ class Reservation:
     interface: int
     mac: str
     ip: ipaddress.IPv4Address
+    dns_server: ipaddress.IPv4Address | None
+    dns_search: ipaddress.IPv4Address | None
 
     def json(self):
         return {
@@ -23,6 +25,8 @@ class Reservation:
             "ip": str(self.ip),
             "vmid": self.vmid,
             "interface": self.interface,
+            "dns_server": self.dns_server,
+            "dns_search": self.dns_search
         }
 
 
@@ -82,6 +86,20 @@ class InterfaceReservations(Thread):
                                 "hw-address": r.mac,
                                 "ip-address": str(r.ip),
                                 "client-classes": ["cloudinit"],
+                                "option-data": [
+                                    opt for opt in [
+                                        {
+                                            "name": "domain-name-servers",
+                                            "data": r.dns_server,
+                                            "always-send": True
+                                        } if r.dns_server else None,
+                                        {
+                                            "name": "domain-name",
+                                            "data": r.dns_search,
+                                            "always-send": True
+                                        } if r.dns_search else None
+                                    ] if opt is not None
+                                ]
                             }
                             for r in res
                         ],
@@ -177,6 +195,8 @@ def get_stats_raw():
                     "mac": r["mac"],
                     "ip": str(r["ip"]),
                     "interface": r["interface"],
+                    "dns_server": r["dns_server"],
+                    "dns_search": r["dns_search"]
                 }
                 for r in q["reservations"]
             ],
@@ -237,6 +257,15 @@ def query_reservations():
                 ]
                 options = dict((key, value) for [key, value] in lines)
 
+                dns_server = None
+                dns_search = None
+
+                for [key, value] in lines:
+                    if key == "nameserver":
+                        dns_server = value
+                    elif key == "searchdomain":
+                        dns_search = value
+
                 for [key, value] in lines:
                     if key.startswith("ipconfig"):
                         print(f"Considering {key} for VM {vm_id}", file=sys.stderr)
@@ -273,7 +302,7 @@ def query_reservations():
                                 "vlan": tag,
                                 "subnet": address.network,
                                 "gateway": gateway,
-                                "reservations": [],
+                                "reservations": []
                             },
                         )
                         if_opts = results[interface]
@@ -298,6 +327,8 @@ def query_reservations():
                                     if re.match(r"([A-F0-9]{2}:){5}[A-F0-9]{2}", mac)
                                 ),
                                 "ip": address.ip,
+                                "dns_search": dns_search,
+                                "dns_server": dns_server,
                             }
                         )
         except Exception as e:
