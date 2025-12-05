@@ -2,6 +2,44 @@
 
 The goal of this project is simple: use cloud-init configuration as a user, but still assign IP addresses on systems that do not support cloud-init to enable further customization via Ansible
 
+* Quickstart
+On Proxmox, go to each node and make an LXC container, and leave it powered off. Edit ~/etc/pve/local/lxc/<ID>.conf~ with the ID corresponding to the new LXC container. Remove any options that look like ~lxc.net~, and then add the following code:
+
+#+BEGIN_SRC yaml
+features: nesting=1
+unprivileged: 0
+mp0: /etc/pve,mp=/etc/pve
+lxc.net.0.type: none
+#+END_SRC
+
+Boot the LXC container, andl install Docker on it. Create the following compose file, and run ~docker compose up -d~:
+
+#+BEGIN_SRC yaml
+services:
+  management:
+    container_name: pkci-management-1
+    image: ghcr.io/r-a303931/proxmox-kea-integration:main
+    privileged: true
+    network_mode: host
+    restart: always
+    volumes:
+      - /etc/pve:/etc/pve
+    environment:
+      - VM_CHECK_POLL=5 # change to how frequently (in seconds) this service should update its database of records
+#+END_SRC
+
+This application can get into weird states with networks being added and removed, so add a cronjob to restart the service every 5 minutes or so, e.g.:
+
+#+BEGIN_SRC
+*/5 * * * * systemctl restart docker
+#+END_SRC
+
+Or alternatively:
+
+#+BEGIN_SRC
+*/5 * * * * docker restart pkci-management-1
+#+END_SRC
+
 * Theory
 This integration reads Proxmox cloud-init configuration to gather MAC address and desired IP address mappings and creates Docker containers that host a Kea DHCP server to issue said IP address to the VM with the correct address.
 
