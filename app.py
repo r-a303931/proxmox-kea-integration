@@ -397,10 +397,10 @@ def update_reservations():
                 interfaces[i] = interface.rebuild_if()
                 interface = interfaces[i]
                 print(f"Stopped DHCP on {interface.interface}", file=sys.stderr)
-
-                os.makedirs(f"/etc/pkci/{interface.interface}", exist_ok=True)
-
                 kea_interface = interface.interface.replace("fwbr", "fb")
+
+                os.makedirs(f"/etc/pkci/{kea_interface}", exist_ok=True)
+
                 run_cmd(f"ip netns add kea_{interface.interface}")
                 run_cmd(f"ip link del kh_{kea_interface}", exit_on_failure=False)
                 run_cmd(
