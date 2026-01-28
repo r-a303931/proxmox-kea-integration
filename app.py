@@ -65,10 +65,10 @@ class InterfaceReservations(Thread):
         res = reservations if reservations else self.reservations
         conf = {
             "Dhcp4": {
-                "interfaces-config": {"interfaces": [f"kn_{self.interface}"]},
+                "interfaces-config": {"interfaces": [f"kn_{self.interface.replace('fwbr', 'fb')}"]},
                 "lease-database": {
                     "type": "memfile",
-                    "name": f"/etc/pkci/{self.interface}/leases.csv",
+                    "name": f"/etc/pkci/{self.interface.replace('fwbr', 'fb')}/leases.csv",
                     "lfc-interval": 0,
                 },
                 "subnet4": [
@@ -120,7 +120,7 @@ class InterfaceReservations(Thread):
 
     def json(self) -> dict:
         return {
-            "interface": self.interface,
+            "interface": self.interface.replace('fwbr', 'fb'),
             "vlan": self.vlan,
             "subnet_id": str(self.subnet.network_address),
             "subnet_mask": self.subnet.prefixlen,
@@ -131,17 +131,17 @@ class InterfaceReservations(Thread):
         }
 
     def run(self):
-        with open(f"/etc/pkci/{self.interface}/kea-dhcp4.json", "w") as kea_dhcp:
+        with open(f"/etc/pkci/{self.interface.replace('fwbr', 'fb')}/kea-dhcp4.json", "w") as kea_dhcp:
             kea_dhcp.write(self.build_config())
 
-        with open(f"/etc/pkci/{self.interface}/leases.csv", "w") as kea_leases:
+        with open(f"/etc/pkci/{self.interface.replace('fwbr', 'fb')}/leases.csv", "w") as kea_leases:
             kea_leases.write(self.build_leases())
 
         self.kea_process = subprocess.Popen(
             [
                 "/bin/sh",
                 "-c",
-                f'unshare -m sh -c "mount -t tmpfs kea_run /var/run/kea; KEA_DHCP_DATA_DIR=/etc/pkci/{self.interface} ip netns exec kea_{self.interface} kea-dhcp4 -c /etc/pkci/{self.interface}/kea-dhcp4.json 2>&1 | tee /etc/pkci/{self.interface}/log"',
+                f'unshare -m sh -c "mount -t tmpfs kea_run /var/run/kea; KEA_DHCP_DATA_DIR=/etc/pkci/{self.interface.replace("fwbr", "fb")} ip netns exec kea_{self.interface} kea-dhcp4 -c /etc/pkci/{self.interface.replace("fwbr", "fb")}/kea-dhcp4.json 2>&1 | tee /etc/pkci/{self.interface.replace("fwbr", "fb")}/log"',
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -164,7 +164,7 @@ class InterfaceReservations(Thread):
 
     def stop(self):
         os.system(f"ip netns del kea_{self.interface}")
-        os.system(f"ip link del kh_{self.interface}")
+        os.system(f"ip link del kh_{self.interface.replace('fwbr', 'fb')}")
 
         if self.kea_process:
             self.kea_process.kill()
@@ -273,7 +273,7 @@ def query_reservations():
                         net_conf = parse_kv(options[f"net{net_id}"])
 
                         if net_conf.get("firewall", "0") == "1":
-                            interface = f"fb{vm_id}i{net_id}"
+                            interface = f"fwbr{vm_id}i{net_id}"
                             if_raw = interface
                             tag = 0
                         elif "tag" in net_conf:
@@ -400,35 +400,36 @@ def update_reservations():
 
                 os.makedirs(f"/etc/pkci/{interface.interface}", exist_ok=True)
 
+                kea_interface = interface.interface.replace("fwbr", "fb")
                 run_cmd(f"ip netns add kea_{interface.interface}")
-                run_cmd(f"ip link del kh_{interface.interface}", exit_on_failure=False)
+                run_cmd(f"ip link del kh_{kea_interface}", exit_on_failure=False)
                 run_cmd(
-                    f"ip link add kh_{interface.interface} type veth peer kn_{interface.interface}"
+                    f"ip link add kh_{kea_interface} type veth peer kn_{kea_interface}"
                 )
                 run_cmd(
-                    f"ip link set kn_{interface.interface} netns kea_{interface.interface}"
+                    f"ip link set kn_{kea_interface} netns kea_{kea_interface}"
                 )
                 run_cmd(f"ip -n kea_{interface.interface} link set lo up")
                 run_cmd(
-                    f"ip -n kea_{interface.interface} link set kn_{interface.interface} up"
+                    f"ip -n kea_{interface.interface} link set kn_{kea_interface} up"
                 )
                 run_cmd(
-                    f"ip -n kea_{interface.interface} addr add {str(interface.subnet[-2])}/{interface.subnet.prefixlen} brd + dev kn_{interface.interface}"
+                    f"ip -n kea_{interface.interface} addr add {str(interface.subnet[-2])}/{interface.subnet.prefixlen} brd + dev kn_{kea_interface}"
                 )
                 if interface.vlan != 0:
                     run_cmd(
-                        f"ip link set kh_{interface.interface} master {interface.if_raw}"
+                        f"ip link set kh_{kea_interface} master {interface.if_raw}"
                     )
                 else:
                     run_cmd(
-                        f"ip link set kh_{interface.interface} master {interface.interface}"
+                        f"ip link set kh_{kea_interface} master {interface.interface}"
                     )
-                run_cmd(f"ip link set kh_{interface.interface} up")
+                run_cmd(f"ip link set kh_{kea_interface} up")
 
                 if interface.vlan != 0:
-                    run_cmd(f"bridge vlan del vid 1 dev kh_{interface.interface}")
+                    run_cmd(f"bridge vlan del vid 1 dev kh_{kea_interface}")
                     run_cmd(
-                        f"bridge vlan add vid {interface.vlan} dev kh_{interface.interface} pvid untagged"
+                        f"bridge vlan add vid {interface.vlan} dev kh_{kea_interface} pvid untagged"
                     )
 
                 interface.start()
