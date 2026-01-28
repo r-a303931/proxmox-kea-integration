@@ -407,7 +407,7 @@ def update_reservations():
                     f"ip link add kh_{kea_interface} type veth peer kn_{kea_interface}"
                 )
                 run_cmd(
-                    f"ip link set kn_{kea_interface} netns kea_{kea_interface}"
+                    f"ip link set kn_{kea_interface} netns kea_{interface.interface}"
                 )
                 run_cmd(f"ip -n kea_{interface.interface} link set lo up")
                 run_cmd(
