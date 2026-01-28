@@ -273,7 +273,7 @@ def query_reservations():
                         net_conf = parse_kv(options[f"net{net_id}"])
 
                         if net_conf.get("firewall", "0") == "1":
-                            interface = f"fwbr{vm_id}i{net_id}"
+                            interface = f"fb{vm_id}i{net_id}"
                             if_raw = interface
                             tag = 0
                         elif "tag" in net_conf:
