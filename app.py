@@ -26,7 +26,7 @@ class Reservation:
             "vmid": self.vmid,
             "interface": self.interface,
             "dns_server": self.dns_server,
-            "dns_search": self.dns_search
+            "dns_search": self.dns_search,
         }
 
 
@@ -87,19 +87,29 @@ class InterfaceReservations(Thread):
                                 "ip-address": str(r.ip),
                                 "client-classes": ["cloudinit"],
                                 "option-data": [
-                                    opt for opt in [
-                                        {
-                                            "name": "domain-name-servers",
-                                            "data": r.dns_server,
-                                            "always-send": True
-                                        } if r.dns_server else None,
-                                        {
-                                            "name": "domain-name",
-                                            "data": r.dns_search,
-                                            "always-send": True
-                                        } if r.dns_search else None
-                                    ] if opt is not None
-                                ]
+                                    opt
+                                    for opt in [
+                                        (
+                                            {
+                                                "name": "domain-name-servers",
+                                                "data": r.dns_server,
+                                                "always-send": True,
+                                            }
+                                            if r.dns_server
+                                            else None
+                                        ),
+                                        (
+                                            {
+                                                "name": "domain-name",
+                                                "data": r.dns_search,
+                                                "always-send": True,
+                                            }
+                                            if r.dns_search
+                                            else None
+                                        ),
+                                    ]
+                                    if opt is not None
+                                ],
                             }
                             for r in res
                         ],
@@ -196,7 +206,7 @@ def get_stats_raw():
                     "ip": str(r["ip"]),
                     "interface": r["interface"],
                     "dns_server": r["dns_server"],
-                    "dns_search": r["dns_search"]
+                    "dns_search": r["dns_search"],
                 }
                 for r in q["reservations"]
             ],
@@ -287,12 +297,18 @@ def query_reservations():
 
                         ip_config = parse_kv(value)
 
-                        address = ipaddress.ip_interface(ip_config["ip"])
-                        gateway = (
-                            ipaddress.ip_address(ip_config["gw"])
-                            if "gw" in ip_config
-                            else None
-                        )
+                        if "dhcp" in ip_config["ip"]:
+                            continue
+
+                        try:
+                            address = ipaddress.ip_interface(ip_config["ip"])
+                            gateway = (
+                                ipaddress.ip_address(ip_config["gw"])
+                                if "gw" in ip_config
+                                else None
+                            )
+                        except:
+                            continue
 
                         results[interface] = results.get(
                             interface,
@@ -302,7 +318,7 @@ def query_reservations():
                                 "vlan": tag,
                                 "subnet": address.network,
                                 "gateway": gateway,
-                                "reservations": []
+                                "reservations": [],
                             },
                         )
                         if_opts = results[interface]
