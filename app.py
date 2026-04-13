@@ -65,7 +65,9 @@ class InterfaceReservations(Thread):
         res = reservations if reservations else self.reservations
         conf = {
             "Dhcp4": {
-                "interfaces-config": {"interfaces": [f"kn_{self.interface.replace('fwbr', 'fb')}"]},
+                "interfaces-config": {
+                    "interfaces": [f"kn_{self.interface.replace('fwbr', 'fb')}"]
+                },
                 "lease-database": {
                     "type": "memfile",
                     "name": f"/etc/pkci/{self.interface.replace('fwbr', 'fb')}/leases.csv",
@@ -130,7 +132,7 @@ class InterfaceReservations(Thread):
 
     def json(self) -> dict:
         return {
-            "interface": self.interface.replace('fwbr', 'fb'),
+            "interface": self.interface.replace("fwbr", "fb"),
             "vlan": self.vlan,
             "subnet_id": str(self.subnet.network_address),
             "subnet_mask": self.subnet.prefixlen,
@@ -141,10 +143,14 @@ class InterfaceReservations(Thread):
         }
 
     def run(self):
-        with open(f"/etc/pkci/{self.interface.replace('fwbr', 'fb')}/kea-dhcp4.json", "w") as kea_dhcp:
+        with open(
+            f"/etc/pkci/{self.interface.replace('fwbr', 'fb')}/kea-dhcp4.json", "w"
+        ) as kea_dhcp:
             kea_dhcp.write(self.build_config())
 
-        with open(f"/etc/pkci/{self.interface.replace('fwbr', 'fb')}/leases.csv", "w") as kea_leases:
+        with open(
+            f"/etc/pkci/{self.interface.replace('fwbr', 'fb')}/leases.csv", "w"
+        ) as kea_leases:
             kea_leases.write(self.build_leases())
 
         self.kea_process = subprocess.Popen(
@@ -159,16 +165,19 @@ class InterfaceReservations(Thread):
         )
 
         while self.kea_process.returncode is None:
-            out, err = self.kea_process.communicate(timeout=15)
+            try:
+                out, err = self.kea_process.communicate(timeout=15)
 
-            if err != "":
-                for reservation in self.reservations:
-                    for alloced in self.allocated_reservations:
-                        if alloced == reservation:
-                            break
-                    else:
-                        if f"lease {str(reservation.ip)} has been allocated" in err:
-                            self.allocated_reservations.append(reservation)
+                if err != "":
+                    for reservation in self.reservations:
+                        for alloced in self.allocated_reservations:
+                            if alloced == reservation:
+                                break
+                        else:
+                            if f"lease {str(reservation.ip)} has been allocated" in err:
+                                self.allocated_reservations.append(reservation)
+            except:
+                pass
 
         self.status = "Exited (likely error!)"
 
@@ -433,9 +442,7 @@ def update_reservations():
                     f"ip -n kea_{interface.interface} addr add {str(interface.subnet[-2])}/{interface.subnet.prefixlen} brd + dev kn_{kea_interface}"
                 )
                 if interface.vlan != 0:
-                    run_cmd(
-                        f"ip link set kh_{kea_interface} master {interface.if_raw}"
-                    )
+                    run_cmd(f"ip link set kh_{kea_interface} master {interface.if_raw}")
                 else:
                     run_cmd(
                         f"ip link set kh_{kea_interface} master {interface.interface}"
